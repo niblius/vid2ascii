@@ -8,7 +8,7 @@
 
 
 void get_character_set(cv::Mat &charset);
-int32_t calculate_intensity(cv::Mat img);
+int32_t calc_font_intensity(cv::Mat img);
 void calc_font_intensities(int32_t intensities[], cv::Mat &img);
 std::string getPlatformName (cl_platform_id id);
 void checkError (cl_int error);
@@ -72,51 +72,6 @@ int main()
 
 	std::cout << "Context created" << std::endl;
 
-    // Get video
-    std::string path = "sample.avi";
-    cv::VideoCapture capture(path);
-
-    // Capture all but last 30 frames
-    int frm_count = capture.get(CV_CAP_PROP_FRAME_COUNT)-30;
-    cv::Mat frame, *gray_frames;
-    // we will load all frames to memory
-    // to be able to pre-process frames on CPU
-    // while asyncroniously copying them to GPU __global
-    gray_frames = new cv::Mat[frm_count];
-    cl_mem *gpu_gray = new cl_mem[frm_count];
-    cl_mem *gpu_output = new cl_mem[frm_count];
-    int symbols_per_width, symbols_per_height;
-
-    std::cout << "Processing " << frm_count << " frames" << std::endl;
-    // ------------------------
-
-    if (frm_count > 1000)
-        frm_count = 3000;
-
-    // ------------------------
-
-    // Transfer Mat data to the device
-    for (int i = 0; i < frm_count; i++) {
-        capture >> frame;
-        cv::cvtColor(frame, gray_frames[i], cv::COLOR_BGR2GRAY);
-
-        if (i == 0) {
-            // All frames have same size
-            symbols_per_width = gray_frames[0].cols / SYMBOL_WIDTH,
-            symbols_per_height = gray_frames[0].rows / LINE_HEIGHT;
-        }
-
-       	// Create a buffers for each frame
-        gpu_gray[i] = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-            gray_frames[i].total(), gray_frames[i].data, &error);
-        checkError(error);
-
-        gpu_output[i] = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-            sizeof(char) * symbols_per_width * symbols_per_height,
-            nullptr, &error);
-        checkError (error);
-    }
-
     // Calculate charset intensities
     cv::Mat font_img;
     get_character_set(font_img);
@@ -145,27 +100,33 @@ int main()
 	cl_program program = createProgram(loadKernel ("to_ascii.cl"),
 		context);
     
+    // Get video
+    std::string path = "sample1.avi";
+    cv::VideoCapture capture(path);
+    
+    int asd = capture.get(CV_CAP_PROP_FRAME_WIDTH);
     char defines_str[128];
     snprintf(defines_str, sizeof(defines_str),
-        "-D LINE_HEIGHT=%d -D SYMBOL_WIDTH=%d -D CHARACTER_COUNT=%d -D LNWIDTH=1280",
-        LINE_HEIGHT, SYMBOL_WIDTH, CHARACTER_COUNT);
+        "-D LINE_HEIGHT=%d -D SYMBOL_WIDTH=%d -D CHARACTER_COUNT=%d -D LNWIDTH=%d",
+        LINE_HEIGHT, SYMBOL_WIDTH, CHARACTER_COUNT, asd);
 	
     checkError(clBuildProgram (program, deviceIdCount, deviceIds.data (),
 		defines_str, nullptr, nullptr));
     
     /*
-    // Determine the size of the log
-    size_t log_size;
-    clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+    // Code for debugging kernels:
+        // Determine the size of the log
+        size_t log_size;
+        clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
-    // Allocate memory for the log
-    char *log = (char *) malloc(log_size);
+        // Allocate memory for the log
+        char *log = (char *) malloc(log_size);
 
-    // Get the log
-    clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        // Get the log
+        clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
-    // Print the log
-    printf("%s\n", log);
+        // Print the log
+        printf("%s\n", log);
     */
 
     // Read the kernel code
@@ -183,54 +144,144 @@ int main()
     clSetKernelArg(kernel, 1, sizeof (cl_mem), &gpu_intensities);
     clSetKernelArg(kernel, 2, sizeof(cl_mem), &gpu_ascii);
 
-    for (int i = 0; i < frm_count; i++) {
-        // These arguments change with each call
-        clSetKernelArg(kernel, 0, sizeof (cl_mem), &gpu_gray[i]);
-        clSetKernelArg(kernel, 3, sizeof (cl_mem), &gpu_output[i]);
+    int frm_total_count = capture.get(CV_CAP_PROP_FRAME_COUNT),
+        frm_total_processed = 0,
+        frm_count = 0,
+        allocation_sz = (frm_total_count > 512) ? 512 : frm_total_count;
 
-        // Run the frame processing
-        std::size_t offset [3] = { 0 }; // can be just NULL, maybe will use it later
-        std::size_t size [3] = { symbols_per_width, symbols_per_height, 1 };
-        checkError(clEnqueueNDRangeKernel (queue, kernel, 2, offset, size, nullptr,
-            0, nullptr, nullptr));
-    }
-
-	// Allocate memory for result on CPU
-    int result_size = symbols_per_height*symbols_per_width*frm_count;
-    char *ascii_img = new char[result_size];
-
-	// Get the result back to the host
-	std::size_t origin[3] = { 0 };
-	std::size_t region[3] = { symbols_per_width, symbols_per_height, 1 };
-
-    for (int i = 0; i < frm_count; i++) {
-        clEnqueueReadBuffer (queue, gpu_output[i], CL_FALSE,
-            0, sizeof(char)*symbols_per_height*symbols_per_width,
-            &ascii_img[symbols_per_height*symbols_per_width*i], 0, nullptr, nullptr);
-    }
-
-    // Wait until all processing will be finished and
-    // result copied back to host
-    clFinish(queue);
-
-    // Save result to file
-    FILE *output = fopen("ascii_img.txt", "w");
-    int frame_size = symbols_per_height * symbols_per_width;
-
-    for (int f_numb = 0; f_numb < frm_count; f_numb++) {
-        for (int y = 0; y < symbols_per_height; y++) {
-            for (int x = 0; x < symbols_per_width; x++) {
-                fputc(ascii_img[frame_size*f_numb + symbols_per_width*y + x], output);
-            }
-            fputc('\n', output);        
-        }
-        fputc('\n', output);
-    }
+    cv::Mat frame, *gray_frames;
+    // We will load all frames to memory
+    // to be able to pre-process frames on CPU
+    // while asyncroniously copying them to GPU __global
+    gray_frames = new cv::Mat[allocation_sz];
+    cl_mem *gpu_gray = new cl_mem[allocation_sz];
+    cl_mem *gpu_output = new cl_mem[allocation_sz];
+    int symbols_per_width, symbols_per_height;
     
-    fclose(output);
+    // Can be just NULL, maybe will use it later
+    std::size_t offset [3] = { 0 };
+    std::size_t size[3];
+    std::size_t origin[3] = { 0 };
+    std::size_t region[3];
+
+    // Output variables
+    int result_size;
+    char *ascii_img;
+
+    // Output file
+    FILE *output = fopen("ascii_img.txt", "w");
+    int frame_size;
+
+    while (frm_total_processed < frm_total_count) {
+        frm_total_processed += frm_count;
+        if (frm_total_count-frm_total_processed > 512) {
+            frm_count = 512;
+        } else {
+            frm_count = frm_total_count-frm_total_processed;
+        }
+
+        std::cout << "Processing from " << frm_count+frm_total_processed
+            << " of " << frm_total_count << std::endl;
+        // Process frm_count frames
+        int i;
+        for (i = 0; i < frm_count; i++) {
+            capture >> frame;
+            
+            // There is bug with some videos,
+            // OpenCV thinks that there are more frames, than there are really
+            // So that those last "broken" frames have dimentions 0x0
+            if (frame.rows == 0 || frame.cols == 0) {
+                std::cout << frm_total_processed + i
+                    << " is an empty frame, skipping the rest." << std::endl;
+                frm_total_processed = frm_total_count;
+                break;
+            }
+
+            cv::cvtColor(frame, gray_frames[i], cv::COLOR_BGR2GRAY);
+
+            // After we get first frame, we can its dimentions
+            // They are the same for each frame
+            if (i == 0 && frm_total_processed == 0) {
+                // All frames have same size
+                symbols_per_width = gray_frames[0].cols / SYMBOL_WIDTH,
+                symbols_per_height = gray_frames[0].rows / LINE_HEIGHT;
+                frame_size = symbols_per_height * symbols_per_width;
+
+                // Setting work dimentions
+                size[0] = symbols_per_width;
+                size[1] = symbols_per_height;
+                size[2] = 1;
+
+                // Work dimentions for output
+                region[0] = symbols_per_width;
+                region[1] = symbols_per_height;
+                region[2] = 1;
+
+                // Allocate memory for result on CPU
+                result_size = symbols_per_height * symbols_per_width * frm_count;
+                ascii_img = new char[result_size];
+
+                // Because of frame bug, we count all created buffers
+                allocation_sz = 0;
+            }
+
+            if (frm_total_processed == 0) {
+                allocation_sz++;
+                // Create a buffers for each frame
+                gpu_gray[i] = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                    gray_frames[i].total(), gray_frames[i].data, &error);
+                checkError(error);
+
+                gpu_output[i] = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
+                    sizeof(char) * symbols_per_width * symbols_per_height,
+                    nullptr, &error);
+                checkError (error);
+            } else {
+                // Otherwise we just update existing input buffer
+                // if (frm_count + frm_total_processed == 6656 && i > 234) {
+                //    printf("\n %d %u %u", gray_frames[i].total(), gray_frames[i].data, gpu_gray[i]);
+                //}
+                
+                checkError(clEnqueueWriteBuffer(queue, gpu_gray[i], CL_FALSE,
+                    0, gray_frames[i].total(), gray_frames[i].data, 0, nullptr, nullptr));
+            }
+
+            // These arguments change with each call
+            clSetKernelArg(kernel, 0, sizeof (cl_mem), &gpu_gray[i]);
+            clSetKernelArg(kernel, 3, sizeof (cl_mem), &gpu_output[i]);
+
+            // Run the frame processing
+            checkError(clEnqueueNDRangeKernel(queue, kernel, 2, offset, size, nullptr,
+                0, nullptr, nullptr));
+
+            // Get the result back to the host
+            clEnqueueReadBuffer(queue, gpu_output[i], CL_FALSE,
+                0, sizeof(char)*symbols_per_height*symbols_per_width,
+                &ascii_img[symbols_per_height*symbols_per_width*i], 0, nullptr, nullptr);
+        }
+
+        // Wait until all processing will be finished and
+        // result copied back to host
+        clFinish(queue);
+
+        // Save result to file
+        // (due to the bug with frames we use i, not frm_count)
+        for (int f_numb = 0; f_numb < i; f_numb++) {
+            for (int y = 0; y < symbols_per_height; y++) {
+                for (int x = 0; x < symbols_per_width; x++) {
+                    fputc(ascii_img[frame_size*f_numb + symbols_per_width*y + x],
+                        output);
+                }
+                fputc('\n', output);        
+            }
+            fputc('\n', output);
+        }
+    }
 
     // Do cleanup
-    for (int i = 0; i < frm_count; i++) {
+    fclose(output);
+
+    for (int i = 0; i < allocation_sz; i++) {
         clReleaseMemObject(gpu_gray[i]);
         clReleaseMemObject(gpu_output[i]);
     }
@@ -256,7 +307,7 @@ void calc_font_intensities(int32_t intensities[], cv::Mat &charset) {
         Character c = characters_Arial[i];
         cv::Rect char_borders(c.x, c.y, c.width, c.height);
         cv::Mat c_img = charset(char_borders);
-        intensities[i] = calculate_intensity(c_img);
+        intensities[i] = calc_font_intensity(c_img);
     }
 }
 
@@ -265,7 +316,7 @@ void get_character_set(cv::Mat &char_set) {
     return;
 }
 
-int32_t calculate_intensity(cv::Mat img) {
+int32_t calc_font_intensity(cv::Mat img) {
     int nRows = img.rows;
     int nCols = img.cols;
 
@@ -282,7 +333,7 @@ int32_t calculate_intensity(cv::Mat img) {
     {
         for (j = 0; j < nCols; ++j)
         {
-            intensity += 255 - img.at<uchar>(i,j);
+            intensity += 285 - img.at<uchar>(i,j);
         }
     }
     
