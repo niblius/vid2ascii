@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/nexiten/Projects/vid2ascii/cpu/Vid2ASCII.cpp
+opencv2/opencv.hpp
+-
+opencv2/core/ocl.hpp
+-
+string
+-
+cmath
+-
+characters.h
+/home/nexiten/Projects/vid2ascii/cpu/characters.h
+
+/home/nexiten/Projects/vid2ascii/cpu/characters.h
+

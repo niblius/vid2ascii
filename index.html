@@ -1,0 +1,47 @@
+<html>
+
+    <body>
+        <input type="file" onchange="previewFile()"><br>
+        <pre id='output_frame' >Video will be here...</pre>
+        
+
+        <script>
+            var video = '';
+            function previewFile() {
+                var file    = document.querySelector('input[type=file]').files[0];
+                var reader  = new FileReader();
+                var frames = [];
+            
+                reader.onload = function(event) {
+                    video += event.target.result;
+                };
+
+                reader.onloadend = function() {
+                    do {
+                        var frameEnd = video.indexOf("\n\n");
+                    
+                        frames.push(video.substring(0, frameEnd));
+                        video = video.substring(frameEnd+2);
+                    } while(frameEnd != -1 && video.length > 2);
+
+                    var currentFrame = 0;
+
+                    function playFrame() {
+                        console.log("Playing frame " + currentFrame);
+                        document.getElementById("output_frame").innerText = frames[currentFrame];
+                        currentFrame++;
+                        if (currentFrame < frames.length)
+                            setTimeout(playFrame, 33);
+                    }
+
+                    playFrame();
+                }
+            
+                if (file) {
+                    reader.readAsText(file);
+                }
+            }
+        </script>
+    </body>
+
+</html>
