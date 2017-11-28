@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     char ascii_symbols[CHARACTER_COUNT];
     // Create array of symbols
     for (int i = 0; i < CHARACTER_COUNT; i++) {
-        ascii_symbols[i] = (char) characters_Arial[i].codePoint;
+        ascii_symbols[i] = characters_Arial[i].codePoint;
     }
 
     // Save symbols to GPU memory as constants
@@ -110,19 +110,18 @@ int main(int argc, char *argv[])
 
     int frame_width = capture.get(CV_CAP_PROP_FRAME_WIDTH);
     int frame_height = capture.get(CV_CAP_PROP_FRAME_HEIGHT);
-    size_t symbols_per_width, symbols_per_height;
     int frm_total_count = capture.get(CV_CAP_PROP_FRAME_COUNT);
     int frm_total_processed = 0,
         frm_count = 0;
     int allocation_sz = (frm_total_count > 512) ? 512 : frm_total_count;
-    int frame_size = frame_width * frame_height;
-    // Single interation result size
-    int interation_result_sz = frame_size*allocation_sz;
     
     // All frames have same size
-    symbols_per_width = frame_width / SYMBOL_WIDTH,
-    symbols_per_height = frame_height / LINE_HEIGHT;
-    frame_size = symbols_per_height * symbols_per_width;
+    size_t  symbols_per_width = frame_width / SYMBOL_WIDTH,
+        symbols_per_height = frame_height / LINE_HEIGHT;
+    int frame_size = symbols_per_height * symbols_per_width;
+
+    // Single interation result size
+    int interation_result_sz = frame_size*allocation_sz;
 
     // Setting work dimentions
     

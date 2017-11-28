@@ -3,7 +3,8 @@
 #define CHARACTER_COUNT 95
 
 typedef struct Character {
-  int codePoint, x, y, width, height, originX, originY;
+  char codePoint;
+  int x, y, width, height, originX, originY;
 } Character;
 
 Character characters_Arial[] = {
