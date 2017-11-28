@@ -17,8 +17,13 @@ std::string loadKernel (const char* name);
 cl_program createProgram (const std::string& source, cl_context context);
 
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc < 3) {
+        std::cout << "Wrong number of arguments. Usage: Vid2ASCII sample.avi output.txt" << std::endl;
+        return -1;
+    }
+
 	cl_uint platformIdCount = 0;
 	clGetPlatformIDs(0, nullptr, &platformIdCount);
 
@@ -101,20 +106,51 @@ int main()
 		context);
     
     // Get video
-    std::string path = "sample1.avi";
-    cv::VideoCapture capture(path);
+    cv::VideoCapture capture(argv[1]);
+
+    int frame_width = capture.get(CV_CAP_PROP_FRAME_WIDTH);
+    int frame_height = capture.get(CV_CAP_PROP_FRAME_HEIGHT);
+    size_t symbols_per_width, symbols_per_height;
+    int frm_total_count = capture.get(CV_CAP_PROP_FRAME_COUNT);
+    int frm_total_processed = 0,
+        frm_count = 0;
+    int allocation_sz = (frm_total_count > 512) ? 512 : frm_total_count;
+    int frame_size = frame_width * frame_height;
+    // Single interation result size
+    int interation_result_sz = frame_size*allocation_sz;
     
-    int asd = capture.get(CV_CAP_PROP_FRAME_WIDTH);
+    // All frames have same size
+    symbols_per_width = frame_width / SYMBOL_WIDTH,
+    symbols_per_height = frame_height / LINE_HEIGHT;
+    frame_size = symbols_per_height * symbols_per_width;
+
+    // Setting work dimentions
+    
+    // Input offset
+    std::size_t offset [3] = { 0 };
+    
+    // Work dimentions for output
+    std::size_t size[3] = {symbols_per_width, symbols_per_height, 1};
+
+    // Result offset
+    std::size_t origin[3] = { 0 };
+    
+    // Work dimentions for output
+    std::size_t region[3] = {symbols_per_width, symbols_per_height, 1};
+
+    // Allocate memory for result on CPU
+    char *ascii_img = new char[interation_result_sz];
+    
     char defines_str[128];
     snprintf(defines_str, sizeof(defines_str),
         "-D LINE_HEIGHT=%d -D SYMBOL_WIDTH=%d -D CHARACTER_COUNT=%d -D LNWIDTH=%d",
-        LINE_HEIGHT, SYMBOL_WIDTH, CHARACTER_COUNT, asd);
+        LINE_HEIGHT, SYMBOL_WIDTH, CHARACTER_COUNT, frame_width);
 	
     checkError(clBuildProgram (program, deviceIdCount, deviceIds.data (),
 		defines_str, nullptr, nullptr));
     
-    /*
     // Code for debugging kernels:
+    /*
         // Determine the size of the log
         size_t log_size;
         clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
@@ -144,11 +180,6 @@ int main()
     clSetKernelArg(kernel, 1, sizeof (cl_mem), &gpu_intensities);
     clSetKernelArg(kernel, 2, sizeof(cl_mem), &gpu_ascii);
 
-    int frm_total_count = capture.get(CV_CAP_PROP_FRAME_COUNT),
-        frm_total_processed = 0,
-        frm_count = 0,
-        allocation_sz = (frm_total_count > 512) ? 512 : frm_total_count;
-
     cv::Mat frame, *gray_frames;
     // We will load all frames to memory
     // to be able to pre-process frames on CPU
@@ -156,21 +187,9 @@ int main()
     gray_frames = new cv::Mat[allocation_sz];
     cl_mem *gpu_gray = new cl_mem[allocation_sz];
     cl_mem *gpu_output = new cl_mem[allocation_sz];
-    int symbols_per_width, symbols_per_height;
-    
-    // Can be just NULL, maybe will use it later
-    std::size_t offset [3] = { 0 };
-    std::size_t size[3];
-    std::size_t origin[3] = { 0 };
-    std::size_t region[3];
-
-    // Output variables
-    int result_size;
-    char *ascii_img;
 
     // Output file
-    FILE *output = fopen("ascii_img.txt", "w");
-    int frame_size;
+    FILE *output = fopen(argv[2], "w");
 
     while (frm_total_processed < frm_total_count) {
         frm_total_processed += frm_count;
@@ -199,28 +218,7 @@ int main()
 
             cv::cvtColor(frame, gray_frames[i], cv::COLOR_BGR2GRAY);
 
-            // After we get first frame, we can its dimentions
-            // They are the same for each frame
             if (i == 0 && frm_total_processed == 0) {
-                // All frames have same size
-                symbols_per_width = gray_frames[0].cols / SYMBOL_WIDTH,
-                symbols_per_height = gray_frames[0].rows / LINE_HEIGHT;
-                frame_size = symbols_per_height * symbols_per_width;
-
-                // Setting work dimentions
-                size[0] = symbols_per_width;
-                size[1] = symbols_per_height;
-                size[2] = 1;
-
-                // Work dimentions for output
-                region[0] = symbols_per_width;
-                region[1] = symbols_per_height;
-                region[2] = 1;
-
-                // Allocate memory for result on CPU
-                result_size = symbols_per_height * symbols_per_width * frm_count;
-                ascii_img = new char[result_size];
-
                 // Because of frame bug, we count all created buffers
                 allocation_sz = 0;
             }
@@ -333,6 +331,7 @@ int32_t calc_font_intensity(cv::Mat img) {
     {
         for (j = 0; j < nCols; ++j)
         {
+            // Use 285 instead of 255 to make fonts a bit "darker"
             intensity += 285 - img.at<uchar>(i,j);
         }
     }
