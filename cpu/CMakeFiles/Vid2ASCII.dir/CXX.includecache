@@ -15,6 +15,10 @@ string
 -
 cmath
 -
+sys/time.h
+-
+time.h
+-
 characters.h
 /home/nexiten/Projects/vid2ascii/cpu/characters.h
 

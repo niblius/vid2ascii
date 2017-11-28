@@ -21,6 +21,10 @@ CL/cl.h
 -
 characters.h
 /home/nexiten/Projects/vid2ascii/opencl/characters.h
+sys/time.h
+-
+time.h
+-
 
 /home/nexiten/Projects/vid2ascii/opencl/characters.h
 

@@ -2,7 +2,10 @@
 #include <opencv2/core/ocl.hpp>
 #include <string>
 #include <cmath>
+#include <sys/time.h>
+#include <time.h>
 #include "characters.h"
+
 
 using namespace cv;
 using namespace std;
@@ -11,6 +14,7 @@ void get_character_set(Mat &charset);
 int32_t calculate_intensity(Mat img, int light = 0);
 int fit_by_intensity(int32_t intens[], int32_t intensity);
 void calc_font_intensities(int32_t intensities[], Mat &img);
+double timer();
 
 int main(int argc, char* argv[])
 {
@@ -54,6 +58,8 @@ int main(int argc, char* argv[])
     
     
     FILE *output = fopen(argv[2], "w");
+
+    double time = timer();
 
     while (frm_total_processed < frm_total_count) {
         frm_total_processed += frm_count;
@@ -120,6 +126,10 @@ int main(int argc, char* argv[])
         }
     }
 
+    time = timer() - time;
+
+    cout << "Time of processing is " << time << " s" << endl;
+
     fclose(output);
     
     delete[] ascii_img;
@@ -176,4 +186,10 @@ int fit_by_intensity(int32_t intens[], int32_t intensity) {
     }
 
     return smallest_index;
+}
+
+double timer() {
+    struct timeval tp;
+    gettimeofday(&tp, NULL);
+    return ((double) (tp.tv_sec) + 1e-6 * tp.tv_usec);
 }

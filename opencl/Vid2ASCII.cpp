@@ -5,6 +5,8 @@
 #include <opencv2/opencv.hpp>
 #include <CL/cl.h>
 #include "characters.h"
+#include <sys/time.h>
+#include <time.h>
 
 
 void get_character_set(cv::Mat &charset);
@@ -15,6 +17,7 @@ void checkError (cl_int error);
 std::string getDeviceName (cl_device_id id);
 std::string loadKernel (const char* name);
 cl_program createProgram (const std::string& source, cl_context context);
+double timer();
 
 
 int main(int argc, char *argv[])
@@ -190,6 +193,8 @@ int main(int argc, char *argv[])
     // Output file
     FILE *output = fopen(argv[2], "w");
 
+    double time = timer();
+
     while (frm_total_processed < frm_total_count) {
         frm_total_processed += frm_count;
         if (frm_total_count-frm_total_processed > 512) {
@@ -199,7 +204,7 @@ int main(int argc, char *argv[])
         }
 
         std::cout << "Processing from " << frm_count+frm_total_processed
-            << " of " << frm_total_count << std::endl;
+            << " to " << frm_total_count << std::endl;
         // Process frm_count frames
         int i;
         for (i = 0; i < frm_count; i++) {
@@ -274,6 +279,10 @@ int main(int argc, char *argv[])
             fputc('\n', output);
         }
     }
+
+    time = timer() - time;
+
+    std::cout << "Time of processing is " << time << " s" << std::endl;
 
     // Do cleanup
     fclose(output);
@@ -392,4 +401,10 @@ cl_program createProgram (const std::string& source,
 	checkError (error);
 
 	return program;
+}
+
+double timer() {
+    struct timeval tp;
+    gettimeofday(&tp, NULL);
+    return ((double) (tp.tv_sec) + 1e-6 * tp.tv_usec);
 }
