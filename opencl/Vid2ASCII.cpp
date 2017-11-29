@@ -192,8 +192,9 @@ int main(int argc, char *argv[])
 
     // Output file
     FILE *output = fopen(argv[2], "w");
-
-    double time = timer();
+    
+    double idle_time = 0, idle_diff;
+    double calc_time = timer();
 
     while (frm_total_processed < frm_total_count) {
         frm_total_processed += frm_count;
@@ -264,7 +265,11 @@ int main(int argc, char *argv[])
 
         // Wait until all processing will be finished and
         // result copied back to host
+        
+        idle_diff = timer();
         clFinish(queue);
+        idle_time += timer() - idle_diff;
+        
 
         // Save result to file
         // (due to the bug with frames we use i, not frm_count)
@@ -280,9 +285,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    time = timer() - time;
+    calc_time = timer() - calc_time;
 
-    std::cout << "Time of processing is " << time << " s" << std::endl;
+    std::cout << "Time of processing is " << calc_time
+              << " s, idle time is " << idle_time << " s." << std::endl;
 
     // Do cleanup
     fclose(output);
